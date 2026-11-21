@@ -30,3 +30,6 @@ Reuse a mature agent runtime; do not build a bespoke company-agent framework. VE
 - Hermes Agent v0.23.3 is already installed natively; hermes doctor confirms Python 3.14.9, SQLite, config, built-in memory, Chromium, Git, ripgrep, Docker, and Node are available.
 - Hermes config already defines a local OpenAI-compatible Ollama endpoint at 127.0.0.1:11434/v1 and qwen3.5:9b-64k; provider is present but interactive Hermes session not yet verified.
 - Hermes doctor reports one setup issue for missing API keys/full optional tool access; several integrations are unavailable without their own dependencies or credentials.
+- Installed official OpenCode Desktop 2.3.2 (MIT) from winget package Anomaly.OpenCode.Desktop; installer hash verified by winget.
+- Opened the jcode repository as an OpenCode project and selected auto-discovered local Ollama/qwen3.5:9b-64k. Read-only agent task correctly returned README heading # jcode and branch master, with Read and Shell tools used.
+- OpenCode write/read/cleanup smoke was interrupted while the agent was still working; temp files remained locked by a process. Do not count write/cleanup as passed until independently verified.
