@@ -23,3 +23,5 @@ Reuse a mature agent runtime; do not build a bespoke company-agent framework. VE
 - Agent write/read smoke: created a temporary file with exact marker VEO_WRITE_READ_OK, read it back, then removed it; verified the file no longer exists.
 - Provider registry exposes Claude, OpenAI, OpenRouter, Gemini, Ollama; registry presence is not proof of working credentials.
 - Gemini Code Assist individual OAuth flow now reports unsupported; OpenRouter probe returns HTTP 401 missing bearer token.
+- Re-ran AI_COMPANY/test_model_fleet.py: 6 passed in 0.02s.
+- Ollama inventory confirms qwen3.5:9b-64k, qwen3.5:9b, qwen3:8b, qwen2.5-coder:3b-64k, qwen2.5-coder:3b, and qwen2.5-coder:1.5b-base installed locally.
