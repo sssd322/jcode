@@ -707,6 +707,7 @@ class ExecuteToolPassthroughTests(ToolCallingTestBase):
         self.assertEqual(descriptor["tool_profile"], TOOL_PROFILE)
         self.assertTrue(descriptor["tool_calling"]["permission_required"])
         self.assertTrue(descriptor["tool_calling"]["schema_validated"])
+        self.assertIsNone(descriptor["tool_calling"]["supported"])
         self.assertNotIn("test-unified-key", json.dumps(descriptor))
 
 
