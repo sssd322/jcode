@@ -1103,6 +1103,7 @@ class FreeLLMAPIClient:
             self.quota.note_call(
                 self.provider,
                 int(total_tokens) if isinstance(total_tokens, (int, float)) else 0,
+            requests=max(1, attempts),
             )
             self.breaker.record_success(self.provider)
             self._note_latency(time.monotonic() - started)
@@ -1585,6 +1586,7 @@ class FreeLLMAPIClient:
             self.quota.note_call(
                 self.provider,
                 int(total_tokens) if isinstance(total_tokens, (int, float)) else 0,
+            requests=max(1, attempts),
             )
             self.breaker.record_success(self.provider)
             self._note_latency(time.monotonic() - started)
