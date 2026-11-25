@@ -24,6 +24,7 @@ from freellmapi_adapter import (
     FreeLLMAPIToolUnsupported,
     _validate_tool_arguments,
     _prevalidate_tool_batch,
+    _run_tool_handler_deadline,
 )
 from jcode_runtime import PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError
 
@@ -404,6 +405,19 @@ class ToolArgumentTests(ToolCallingTestBase):
             _prevalidate_tool_batch([{"id": "next", "function": {"name": "safe", "arguments": "{}"}}],
                                     {"safe": schema}, {"safe": lambda _: None},
                                     [{"id": str(i)} for i in range(MAX_TOOL_CALLS_TOTAL)])
+
+
+    def test_sync_handler_wait_is_bounded(self):
+        import time
+        started = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            _run_tool_handler_deadline(lambda _: threading.Event().wait(0.2), {}, 0.02)
+        self.assertLess(time.monotonic() - started, 0.15)
+
+    def test_sync_handler_result_and_exception_propagate(self):
+        self.assertEqual(_run_tool_handler_deadline(lambda args: args["x"], {"x": 4}, 0.2), 4)
+        with self.assertRaises(ValueError):
+            _run_tool_handler_deadline(lambda _: (_ for _ in ()).throw(ValueError("bad")), {}, 0.2)
 
 class ToolRoundTripTests(ToolCallingTestBase):
     def test_tool_call_id_and_result_round_trip(self):

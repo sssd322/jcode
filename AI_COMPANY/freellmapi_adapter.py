@@ -465,6 +465,27 @@ def _prevalidate_tool_batch(calls, schemas, handlers, executed):
         prepared.append((call, name, _validate_tool_arguments(schemas[name], parsed)))
     return prepared
 
+
+def _run_tool_handler_deadline(handler, arguments, timeout):
+    if timeout <= 0:
+        raise TimeoutError("tool execution deadline exceeded")
+    done = threading.Event()
+    outcome = []
+    def invoke():
+        try:
+            outcome.append((True, handler(arguments)))
+        except BaseException as exc:
+            outcome.append((False, exc))
+        finally:
+            done.set()
+    threading.Thread(target=invoke, daemon=True, name="freellmapi-tool-handler").start()
+    if not done.wait(timeout):
+        raise TimeoutError("tool execution deadline exceeded")
+    ok, value = outcome[0]
+    if not ok:
+        raise value
+    return value
+
 def load_config(path: str | Path) -> FreeLLMAPIConfig:
     """Load a strict config; secrets are never accepted from the JSON file."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1041,7 +1062,7 @@ class FreeLLMAPIClient:
                 prepared_calls = _prevalidate_tool_batch(calls, schemas, handlers, executed)
                 for call, name, arguments in prepared_calls:
                     try:
-                        outcome = handlers[name](arguments)
+                        outcome = _run_tool_handler_deadline(handlers[name], arguments, max(0.0, deadline - time.monotonic()))
                         error = None
                     except Exception as exc:  # a failing tool must not kill the run
                         outcome = None
