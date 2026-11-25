@@ -15,12 +15,15 @@ import free_providers
 from freellmapi_adapter import (
     DEFAULT_BASE_URL,
     MAX_TOOL_ROUNDS,
+    MAX_TOOL_CALLS_PER_ROUND,
+    MAX_TOOL_CALLS_TOTAL,
     TOOL_PROFILE,
     FreeLLMAPIClient,
     FreeLLMAPIConfig,
     FreeLLMAPIToolDenied,
     FreeLLMAPIToolUnsupported,
     _validate_tool_arguments,
+    _prevalidate_tool_batch,
 )
 from jcode_runtime import PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError
 
@@ -370,6 +373,37 @@ class ToolArgumentTests(ToolCallingTestBase):
         with self.assertRaises(FreeLLMAPIToolDenied):
             _validate_tool_arguments(schema, {"text": "bad"})
 
+
+
+    def test_batch_prevalidation_is_atomic_before_handlers(self):
+        calls = [
+            {"id": "one", "function": {"name": "safe", "arguments": "{\"value\":1}"}},
+            {"id": "two", "function": {"name": "safe", "arguments": "{\"value\":\"bad\"}"}},
+        ]
+        side_effects = []
+        schema = {"type": "object", "properties": {"value": {"type": "integer"}},
+                  "required": ["value"], "additionalProperties": False}
+        handlers = {"safe": lambda args: side_effects.append(args)}
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _prevalidate_tool_batch(calls, {"safe": schema}, handlers, [])
+        self.assertEqual(side_effects, [])
+
+    def test_duplicate_tool_call_ids_rejected_before_execution(self):
+        call = {"id": "same", "function": {"name": "safe", "arguments": "{}"}}
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _prevalidate_tool_batch([call, dict(call)], {"safe": schema}, {"safe": lambda _: None}, [])
+
+    def test_call_count_limits_are_checked_before_execution(self):
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        calls = [{"id": str(i), "function": {"name": "safe", "arguments": "{}"}}
+                 for i in range(MAX_TOOL_CALLS_PER_ROUND + 1)]
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _prevalidate_tool_batch(calls, {"safe": schema}, {"safe": lambda _: None}, [])
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _prevalidate_tool_batch([{"id": "next", "function": {"name": "safe", "arguments": "{}"}}],
+                                    {"safe": schema}, {"safe": lambda _: None},
+                                    [{"id": str(i)} for i in range(MAX_TOOL_CALLS_TOTAL)])
 
 class ToolRoundTripTests(ToolCallingTestBase):
     def test_tool_call_id_and_result_round_trip(self):

@@ -435,6 +435,36 @@ def _validate_tool_arguments(schema: Mapping[str, Any], arguments: Any) -> dict[
     _schema_value_matches(schema, arguments, "arguments")
     return dict(arguments)
 
+def _prevalidate_tool_batch(calls, schemas, handlers, executed):
+    if len(calls) > MAX_TOOL_CALLS_PER_ROUND:
+        raise FreeLLMAPIToolDenied("tool-call batch exceeds per-round limit")
+    if len(executed) + len(calls) > MAX_TOOL_CALLS_TOTAL:
+        raise FreeLLMAPIToolDenied("tool-call budget exceeded")
+    seen = {entry.get("id") for entry in executed if entry.get("id")}
+    prepared = []
+    for call in calls:
+        call_id = call.get("id")
+        if not isinstance(call_id, str) or not call_id.strip() or call_id in seen:
+            raise FreeLLMAPIToolDenied("duplicate or invalid tool_call_id")
+        seen.add(call_id)
+        function = call.get("function")
+        if not isinstance(function, Mapping):
+            raise FreeLLMAPIToolDenied("malformed tool call function")
+        name = function.get("name")
+        if not isinstance(name, str) or name not in schemas or name not in handlers:
+            raise FreeLLMAPIToolDenied("tool permission denied: " + str(name))
+        raw = function.get("arguments") or "{}"
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_TOOL_ARGUMENT_CHARS:
+            raise FreeLLMAPIToolDenied("tool arguments invalid or exceed size limit")
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, RecursionError):
+            raise FreeLLMAPIToolDenied("tool arguments are invalid JSON") from None
+        if not isinstance(parsed, dict):
+            raise FreeLLMAPIToolDenied("tool arguments must be a JSON object")
+        prepared.append((call, name, _validate_tool_arguments(schemas[name], parsed)))
+    return prepared
+
 def load_config(path: str | Path) -> FreeLLMAPIConfig:
     """Load a strict config; secrets are never accepted from the JSON file."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1008,13 +1038,8 @@ class FreeLLMAPIClient:
                         "tool_calls": calls,
                     }
                 )
-                for call in calls:
-                    name = call["function"]["name"]
-                    if name not in schemas or name not in handlers:
-                        raise FreeLLMAPIToolDenied("tool permission denied: " + name)
-                    arguments = _validate_tool_arguments(
-                        schemas[name], json.loads(call["function"]["arguments"] or "{}")
-                    )
+                prepared_calls = _prevalidate_tool_batch(calls, schemas, handlers, executed)
+                for call, name, arguments in prepared_calls:
                     try:
                         outcome = handlers[name](arguments)
                         error = None
