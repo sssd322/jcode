@@ -17,6 +17,7 @@ from freellmapi_adapter import (
     MAX_TOOL_ROUNDS,
     MAX_TOOL_CALLS_PER_ROUND,
     MAX_TOOL_CALLS_TOTAL,
+    MAX_TOOL_RESULT_CHARS,
     TOOL_PROFILE,
     FreeLLMAPIClient,
     FreeLLMAPIConfig,
@@ -25,6 +26,7 @@ from freellmapi_adapter import (
     _validate_tool_arguments,
     _prevalidate_tool_batch,
     _run_tool_handler_deadline,
+    _serialize_tool_result,
 )
 from jcode_runtime import PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError
 
@@ -418,6 +420,14 @@ class ToolArgumentTests(ToolCallingTestBase):
         self.assertEqual(_run_tool_handler_deadline(lambda args: args["x"], {"x": 4}, 0.2), 4)
         with self.assertRaises(ValueError):
             _run_tool_handler_deadline(lambda _: (_ for _ in ()).throw(ValueError("bad")), {}, 0.2)
+
+
+    def test_large_tool_result_truncation_preserves_valid_json(self):
+        rendered = _serialize_tool_result("x" * 6000, None)
+        decoded = json.loads(rendered)
+        self.assertTrue(decoded["truncated"])
+        self.assertIn("result_preview", decoded)
+        self.assertLessEqual(len(rendered), MAX_TOOL_RESULT_CHARS)
 
 class ToolRoundTripTests(ToolCallingTestBase):
     def test_tool_call_id_and_result_round_trip(self):

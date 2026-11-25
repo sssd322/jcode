@@ -486,6 +486,30 @@ def _run_tool_handler_deadline(handler, arguments, timeout):
         raise value
     return value
 
+def _serialize_tool_result(outcome, error, limit=MAX_TOOL_RESULT_CHARS):
+    payload = {"ok": error is None, "result": outcome, "error": error}
+    try:
+        rendered = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    except (TypeError, ValueError, RecursionError):
+        payload = {"ok": False, "result": None, "error": "tool result serialization failed"}
+        rendered = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    if len(rendered) <= limit:
+        return rendered
+    try:
+        preview = json.dumps(outcome, ensure_ascii=False, default=str)
+    except (TypeError, ValueError, RecursionError):
+        preview = str(outcome)
+    payload = {"ok": error is None, "result": None, "error": error, "truncated": True, "result_preview": ""}
+    available = max(0, limit - len(json.dumps(payload, ensure_ascii=False, separators=(",", ":"))) - 4)
+    payload["result_preview"] = preview[:available]
+    rendered = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    while len(rendered) > limit and payload["result_preview"]:
+        payload["result_preview"] = payload["result_preview"][:-1]
+        rendered = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    if len(rendered) > limit:
+        return json.dumps({"ok": False, "result": None, "error": "tool result truncated"}, separators=(",", ":"))
+    return rendered
+
 def load_config(path: str | Path) -> FreeLLMAPIConfig:
     """Load a strict config; secrets are never accepted from the JSON file."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1067,13 +1091,7 @@ class FreeLLMAPIClient:
                     except Exception as exc:  # a failing tool must not kill the run
                         outcome = None
                         error = type(exc).__name__ + ": " + str(exc)[:200]
-                    rendered = json.dumps(
-                        {"ok": error is None, "result": outcome, "error": error},
-                        ensure_ascii=False,
-                        default=str,
-                    )
-                    if len(rendered) > MAX_TOOL_RESULT_CHARS:
-                        rendered = rendered[:MAX_TOOL_RESULT_CHARS]
+                    rendered = _serialize_tool_result(outcome, error)
                     executed.append(
                         {
                             "id": call["id"],
