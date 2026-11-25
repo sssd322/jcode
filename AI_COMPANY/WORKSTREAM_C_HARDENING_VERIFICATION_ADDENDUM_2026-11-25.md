@@ -17,3 +17,7 @@
 
 ## Acceptance
 Focused tests pass. Full suite and real-model live delegation remain unverified. No production runtime, hosted API smoke, secrets, or configuration was changed.
+
+## Additional broad-suite attempt
+- PYTHONDONTWRITEBYTECODE=1 python -m pytest -vv -p no:cacheprovider -k not test_delegate_executes_on_a_real_model was interrupted at the worker-once process regression tests after 419 passed, 1 skipped, 1 deselected, 80 subtests passed in 55.52s.
+- Interruption traceback shows WinError 32 / PermissionError: temporary workspace _probe is still held by another process during tempfile cleanup. This is unrelated to the FreeLLMAPI adapter scope; not modified.
