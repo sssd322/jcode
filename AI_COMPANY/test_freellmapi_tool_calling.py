@@ -20,6 +20,7 @@ from freellmapi_adapter import (
     FreeLLMAPIConfig,
     FreeLLMAPIToolDenied,
     FreeLLMAPIToolUnsupported,
+    _validate_tool_arguments,
 )
 from jcode_runtime import PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError
 
@@ -335,6 +336,39 @@ class ToolArgumentTests(ToolCallingTestBase):
         )
         self.assertEqual(self.calls, [("veo_echo", {"text": "VEO_TOOL_OK", "repeat": 2})])
         self.assertEqual(result["tool_calls"][0]["arguments"], {"text": "VEO_TOOL_OK", "repeat": 2})
+
+
+    def test_nested_object_and_array_constraints_are_recursive(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "meta": {"type": "object", "required": ["label"], "properties": {
+                    "label": {"type": "string"}, "count": {"type": "integer"}
+                }, "additionalProperties": False},
+                "values": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["meta", "values"],
+            "additionalProperties": False,
+        }
+        self.assertEqual(_validate_tool_arguments(schema, {"meta": {"label": "x"}, "values": [1, 2]}),
+                         {"meta": {"label": "x"}, "values": [1, 2]})
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _validate_tool_arguments(schema, {"meta": {"label": "x", "count": "wrong"}, "values": [1]})
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _validate_tool_arguments(schema, {"meta": {}, "values": [1]})
+
+    def test_enum_comparison_is_type_aware(self):
+        schema = {"type": "object", "properties": {"flag": {"type": "boolean", "enum": [True]}},
+                  "required": ["flag"], "additionalProperties": False}
+        self.assertEqual(_validate_tool_arguments(schema, {"flag": True}), {"flag": True})
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _validate_tool_arguments(schema, {"flag": 1})
+
+    def test_unsupported_schema_keyword_is_rejected(self):
+        schema = {"type": "object", "properties": {"text": {"type": "string", "pattern": "^ok$"}},
+                  "required": ["text"]}
+        with self.assertRaises(FreeLLMAPIToolDenied):
+            _validate_tool_arguments(schema, {"text": "bad"})
 
 
 class ToolRoundTripTests(ToolCallingTestBase):

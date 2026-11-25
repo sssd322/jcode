@@ -392,54 +392,48 @@ def _json_depth(value: Any) -> int:
     return deepest
 
 
-def _validate_tool_arguments(schema: Mapping[str, Any], arguments: Any) -> dict:
-    """Validate arguments against the declared JSON-schema subset, strictly.
+def _schema_value_matches(rule: Mapping[str, Any], value: Any, path: str, depth: int = 0) -> None:
+    if depth > _MAX_SCHEMA_DEPTH:
+        raise FreeLLMAPIToolDenied("tool arguments are nested too deeply")
+    expected = _declared_types(rule)
+    if expected and not any(_json_type_matches(value, item) for item in expected):
+        raise FreeLLMAPIToolDenied("tool argument " + path + " has an invalid type")
+    allowed = rule.get("enum")
+    if isinstance(allowed, (list, tuple)) and not any(
+        type(value) is type(item) and value == item
+        or isinstance(value, (int, float)) and not isinstance(value, bool)
+        and isinstance(item, (int, float)) and not isinstance(item, bool) and value == item
+        for item in allowed
+    ):
+        raise FreeLLMAPIToolDenied("tool argument " + path + " is not an allowed value")
+    if isinstance(value, dict):
+        properties = rule.get("properties") or {}
+        required = rule.get("required") or []
+        missing = [key for key in required if key not in value]
+        if missing:
+            raise FreeLLMAPIToolDenied("tool argument " + path + " is missing required field: " + missing[0])
+        if rule.get("additionalProperties", True) is False:
+            extra = set(value) - set(properties)
+            if extra:
+                raise FreeLLMAPIToolDenied("tool argument " + path + " contains undeclared fields: " + ", ".join(sorted(extra)))
+        for key, child in value.items():
+            child_rule = properties.get(key)
+            if child_rule is not None:
+                _schema_value_matches(child_rule, child, path + "." + key, depth + 1)
+    elif isinstance(value, list):
+        items = rule.get("items")
+        if isinstance(items, Mapping):
+            for index, child in enumerate(value):
+                _schema_value_matches(items, child, path + "[" + str(index) + "]", depth + 1)
 
-    Supported keywords: type, properties, required, additionalProperties, enum,
-    items.  Unknown keywords are rejected; mismatches are refused, never coerced.
-    """
-    _check_schema_node(schema, chr(36))
+
+def _validate_tool_arguments(schema: Mapping[str, Any], arguments: Any) -> dict[str, Any]:
+    """Strictly validate arguments against the supported JSON-schema subset."""
     if not isinstance(arguments, dict):
         raise FreeLLMAPIToolDenied("tool arguments must be a JSON object")
-    properties = schema.get("properties") or {}
-    if not isinstance(properties, Mapping):
-        raise FreeLLMAPIToolDenied("tool schema properties must be an object")
-    required = schema.get("required") or []
-    if not isinstance(required, (list, tuple)):
-        raise FreeLLMAPIToolDenied("tool schema required must be a list")
-    for key in required:
-        if key not in arguments:
-            raise FreeLLMAPIToolDenied("tool arguments are missing required field: " + str(key))
-    if schema.get("additionalProperties", True) is False:
-        extra = set(arguments) - set(properties)
-        if extra:
-            raise FreeLLMAPIToolDenied(
-                "tool arguments contain undeclared fields: " + ", ".join(sorted(extra))
-            )
-    for key, value in arguments.items():
-        rule = properties.get(key)
-        if rule is None:
-            continue
-        if not isinstance(rule, Mapping):
-            raise FreeLLMAPIToolDenied("tool schema for " + str(key) + " is invalid")
-        expected = rule.get("type")
-        if isinstance(expected, str) and not _json_type_matches(value, expected):
-            raise FreeLLMAPIToolDenied(
-                "tool argument " + str(key) + " is not of type " + expected
-            )
-        allowed = rule.get("enum")
-        if isinstance(allowed, (list, tuple)) and value not in allowed:
-            raise FreeLLMAPIToolDenied("tool argument " + str(key) + " is not an allowed value")
-        if expected == "array" and isinstance(value, list):
-            items = rule.get("items")
-            if isinstance(items, Mapping) and isinstance(items.get("type"), str):
-                for item in value:
-                    if not _json_type_matches(item, str(items["type"])):
-                        raise FreeLLMAPIToolDenied(
-                            "tool argument " + str(key) + " contains a wrongly typed item"
-                        )
+    _check_schema_node(schema, "arguments")
+    _schema_value_matches(schema, arguments, "arguments")
     return dict(arguments)
-
 
 def load_config(path: str | Path) -> FreeLLMAPIConfig:
     """Load a strict config; secrets are never accepted from the JSON file."""
