@@ -1103,7 +1103,7 @@ class FreeLLMAPIClient:
             }
         except (PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError) as exc:
             attempts += getattr(exc, "attempts", 0)
-            if not isinstance(exc, FreeLLMAPICancelled):
+            if isinstance(exc, TransientRuntimeError) and attempts > 0:
                 self.breaker.record_failure(
                     self.provider, type(exc).__name__ + ": " + str(exc)[:150]
                 )
@@ -1573,7 +1573,7 @@ class FreeLLMAPIClient:
             return result
         except (PermanentRuntimeError, RuntimeUnavailable, TransientRuntimeError) as exc:
             attempts += getattr(exc, "attempts", 0)
-            if not isinstance(exc, FreeLLMAPICancelled):
+            if isinstance(exc, TransientRuntimeError) and attempts > 0:
                 self.breaker.record_failure(self.provider, type(exc).__name__ + ": " + str(exc)[:150])
             self._emit({
                 "provider": self.provider,
